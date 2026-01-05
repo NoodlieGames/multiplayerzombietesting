@@ -263,9 +263,27 @@ Design notes:
                     const ms = Math.round(performance.now() - p.t);
                     setStatus('connected • ping ' + ms + 'ms');
                 }
+                // SPAWN SYNC
+                if (p && p.spawn){
+                    window.__MP_SPAWN__ = p.spawn;
+                }
+            });
+                }
+                if (p && p.pong && typeof p.t === 'number'){
+                    const ms = Math.round(performance.now() - p.t);
+                    setStatus('connected • ping ' + ms + 'ms');
+                }
             });
 
-            MP.on('open', ()=>{ setStatus('connected'); startPing(); });
+            MP.on('open', ()=>{ 
+                setStatus('connected'); 
+                startPing();
+                // HOST decides spawn position
+                if (MP.isHost){
+                    const spawn = { x: 0, y: 0 };
+                    MP.send('meta', { spawn });
+                }
+            });
             MP.on('close', ()=>{ setStatus('disconnected'); stopPing(); });
 
             // ---------- HOST ----------
