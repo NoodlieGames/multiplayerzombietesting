@@ -244,6 +244,19 @@ Design notes:
                 navigator.clipboard?.writeText(v).catch(()=>{});
             }
 
+            // ---------- READY / SYNC / SURVIVORS ----------
+            let readyCount = 0;
+            let survivors = 0;
+
+            function updateSurvivors(){
+                window.__MP_SURVIVORS__ = survivors;
+                setStatus('connected • survivors ' + survivors);
+            }
+
+            function sendReady(){
+                MP.send('meta', { ready:true });
+            }
+
             // ---------- PING ----------
             let pingInterval = null, lastPing = 0;
             function startPing(){
@@ -263,9 +276,26 @@ Design notes:
                     const ms = Math.round(performance.now() - p.t);
                     setStatus('connected • ping ' + ms + 'ms');
                 }
-                // SPAWN SYNC
+                // READY / SPAWN / SURVIVOR SYNC
                 if (p && p.spawn){
                     window.__MP_SPAWN__ = p.spawn;
+                    window.__MP_CAN_SPAWN__ = true;
+                }
+                if (p && p.ready){
+                    if (MP.isHost){
+                        readyCount++;
+                        if (readyCount === 2){
+                            survivors = 2;
+                            updateSurvivors();
+                            const spawn = { x: 0, y: 0 };
+                            MP.send('meta', { spawn, survivors });
+                            window.__MP_CAN_SPAWN__ = true;
+                        }
+                    }
+                }
+                if (p && typeof p.survivors === 'number'){
+                    survivors = p.survivors;
+                    updateSurvivors();
                 }
             });
                 }
@@ -278,6 +308,8 @@ Design notes:
             MP.on('open', ()=>{ 
                 setStatus('connected'); 
                 startPing();
+                sendReady();
+            });
                 // HOST decides spawn position
                 if (MP.isHost){
                     const spawn = { x: 0, y: 0 };
