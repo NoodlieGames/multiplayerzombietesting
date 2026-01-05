@@ -206,56 +206,107 @@ Design notes:
         try{
             if (MP.pc) return;
 
-            const w = window.open('', 'multiplayer_popup', 'width=420,height=420');
-            if (!w) return alert('POPUP BLOCKED 💀 allow popups');
+            // ---------- EMBEDDED OVERLAY UI ----------
+            const overlay = document.createElement('div');
+            overlay.id = 'mp-overlay';
+            overlay.innerHTML = `
+                <style>
+                    #mp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999999;display:flex;align-items:center;justify-content:center}
+                    #mp-box{background:#111;color:#fff;width:420px;max-width:92vw;border-radius:12px;padding:16px;font-family:Arial}
+                    #mp-box h2{margin:0 0 8px 0}
+                    #mp-box button{padding:10px 14px;margin:6px 4px;border-radius:8px;border:none;cursor:pointer}
+                    #mp-box input{width:100%;padding:8px;border-radius:6px;border:none}
+                    #mp-box .row{margin:8px 0}
+                    #mp-box .muted{opacity:.8;font-size:12px}
+                    #mp-status{font-size:12px;margin-top:6px}
+                </style>
+                <div id="mp-box">
+                    <h2>Multiplayer</h2>
+                    <div class="row">
+                        <button id="mp-host">HOST</button>
+                        <button id="mp-join">JOIN</button>
+                        <button id="mp-close" style="float:right">X</button>
+                    </div>
+                    <div id="mp-content"></div>
+                    <div id="mp-status" class="muted">Status: idle</div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
 
-            w.document.write(`
-                <html>
-                <head>
-                    <title>Multiplayer</title>
-                    <style>
-                        body{font-family:Arial;background:#111;color:#fff;padding:20px}
-                        button{padding:10px 15px;margin:5px;font-size:16px;cursor:pointer}
-                        input{width:100%;padding:8px;font-size:14px}
-                        .box{margin-top:10px}
-                    </style>
-                </head>
-                <body>
-                    <h2>Multiplayer 🗿</h2>
-                    <button id="host">HOST</button>
-                    <button id="join">JOIN</button>
-                    <div class="box" id="content"></div>
-                </body>
-                </html>
-            `);
+            const content = overlay.querySelector('#mp-content');
+            const statusEl = overlay.querySelector('#mp-status');
+            const setStatus = (t)=> statusEl.textContent = 'Status: ' + t;
 
-            const doc = w.document;
-            const content = () => doc.getElementById('content');
+            overlay.querySelector('#mp-close').onclick = ()=> overlay.remove();
 
-            doc.getElementById('host').onclick = async () => {
+            // ---------- AUTO COPY ----------
+            function copyValue(v){
+                navigator.clipboard?.writeText(v).catch(()=>{});
+            }
+
+            // ---------- PING ----------
+            let pingInterval = null, lastPing = 0;
+            function startPing(){
+                stopPing();
+                pingInterval = setInterval(()=>{
+                    lastPing = performance.now();
+                    MP.send('meta', { ping:true, t:lastPing });
+                }, 1000);
+            }
+            function stopPing(){ if (pingInterval){ clearInterval(pingInterval); pingInterval=null; } }
+
+            MP.on('msg:meta', (p)=>{
+                if (p && p.ping && typeof p.t === 'number'){
+                    MP.send('meta', { pong:true, t:p.t });
+                }
+                if (p && p.pong && typeof p.t === 'number'){
+                    const ms = Math.round(performance.now() - p.t);
+                    setStatus('connected • ping ' + ms + 'ms');
+                }
+            });
+
+            MP.on('open', ()=>{ setStatus('connected'); startPing(); });
+            MP.on('close', ()=>{ setStatus('disconnected'); stopPing(); });
+
+            // ---------- HOST ----------
+            overlay.querySelector('#mp-host').onclick = async ()=>{
+                setStatus('creating lobby…');
                 const lobby = await MP.createLobby();
-                content().innerHTML = `
-                    <p>Send this link to your friend 👇</p>
-                    <input readonly value="${lobby.shareLink}" onclick="this.select()">
-                    <p>Paste ANSWER link below:</p>
-                    <input id="answer" placeholder="Paste answer link here">
-                    <button id="connect">CONNECT</button>
+                content.innerHTML = `
+                    <div class="row"><div class="muted">Share this link</div>
+                        <input readonly id="mp-host-link" value="${lobby.shareLink}">
+                        <button id="mp-copy-host">COPY</button>
+                    </div>
+                    <div class="row"><div class="muted">Paste ANSWER link</div>
+                        <input id="mp-answer" placeholder="paste answer link">
+                        <button id="mp-connect">CONNECT</button>
+                    </div>
                 `;
-                doc.getElementById('connect').onclick = async () => {
-                    const ans = doc.getElementById('answer').value;
+                const hostInput = content.querySelector('#mp-host-link');
+                hostInput.onclick = ()=> hostInput.select();
+                content.querySelector('#mp-copy-host').onclick = ()=> copyValue(hostInput.value);
+                content.querySelector('#mp-connect').onclick = async ()=>{
+                    const ans = content.querySelector('#mp-answer').value;
                     if (!ans) return alert('NO ANSWER LINK 💀');
+                    setStatus('connecting…');
                     await MP.setAnswerFromUrl(ans);
-                    content().innerHTML = '<p>CONNECTED 🔥</p>';
                 };
             };
 
-            doc.getElementById('join').onclick = async () => {
+            // ---------- JOIN ----------
+            overlay.querySelector('#mp-join').onclick = async ()=>{
+                setStatus('joining…');
                 const join = await MP.joinFromUrl(window.location.href);
-                content().innerHTML = `
-                    <p>Send this back to host 👇</p>
-                    <input readonly value="${join.answerLink}" onclick="this.select()">
-                    <p>Waiting for host…</p>
+                content.innerHTML = `
+                    <div class="row"><div class="muted">Send back to host</div>
+                        <input readonly id="mp-answer-link" value="${join.answerLink}">
+                        <button id="mp-copy-ans">COPY</button>
+                    </div>
+                    <div class="row muted">Waiting for host…</div>
                 `;
+                const ansInput = content.querySelector('#mp-answer-link');
+                ansInput.onclick = ()=> ansInput.select();
+                content.querySelector('#mp-copy-ans').onclick = ()=> copyValue(ansInput.value);
             };
         } catch(e){
             console.error('[MP UI ERROR]', e);
